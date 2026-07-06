@@ -1,0 +1,40 @@
+# === 二进制/Office 文件（不提交到 git）===
+*.pptx
+*.docx
+*.xlsx
+
+# === backup-app 子项目的忽略规则 ===
+# Build output
+build/
+cmake-build-*/
+out/
+
+# Compiled files
+*.o
+*.obj
+*.exe
+*.so
+*.dll
+*.a
+*.dylib
+
+# Qt generated
+moc_*.cpp
+ui_*.h
+qrc_*.cpp
+*.moc
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Backup archives (don't track test backups)
+*.bkp
+*.bkp.manifest.json
+
+# OS
+.DS_Store
+Thumbs.db
