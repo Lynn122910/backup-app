@@ -31,6 +31,12 @@ public:
     explicit BackupEngine(QObject* parent = nullptr);
     ~BackupEngine();
 
+    // QObject is non-movable; these are implicitly deleted
+    BackupEngine(BackupEngine&&) = delete;
+    BackupEngine& operator=(BackupEngine&&) = delete;
+    BackupEngine(const BackupEngine&) = delete;
+    BackupEngine& operator=(const BackupEngine&) = delete;
+
     /// Set progress callback (alternative to signal)
     void SetProgressCallback(BackupProgressCallback cb);
 

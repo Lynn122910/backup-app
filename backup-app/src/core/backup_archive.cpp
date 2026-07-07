@@ -1,6 +1,7 @@
 #include "core/backup_archive.h"
 #include "core/backup_manifest.h"
 #include "common/logger.h"
+#include "common/file_utils.h"
 
 #include <openssl/sha.h>
 #include <cstring>
@@ -9,6 +10,7 @@
 
 // Platform-specific includes for file I/O
 #include <sys/stat.h>
+#include <sys/sysmacros.h>
 #include <fcntl.h>
 #include <unistd.h>
 
@@ -65,14 +67,14 @@ bool BackupArchiveWriter::Open(const std::string& file_path) {
         return false;
     }
 
+    // Reset SHA-256 BEFORE writing header so the header is included in the checksum
+    delete static_cast<Sha256Context*>(sha256_ctx_);
+    sha256_ctx_ = new Sha256Context();
+
     // Write header
     if (!WriteUint32(ARCHIVE_MAGIC))   { Close(); return false; }
     if (!WriteUint16(ARCHIVE_VERSION)) { Close(); return false; }
     if (!WriteUint16(0))              { Close(); return false; } // flags reserved
-
-    // Reset SHA-256 context
-    delete static_cast<Sha256Context*>(sha256_ctx_);
-    sha256_ctx_ = new Sha256Context();
 
     open_ = true;
     file_count_ = 0;
@@ -320,30 +322,52 @@ std::optional<std::vector<uint8_t>> BackupArchiveReader::ReadFileData(
     const BackupFileEntry& entry) {
     if (!open_) return std::nullopt;
 
-    // Seek to the file's data location in the archive
-    // The entry.offset_in_archive points to the start of this file entry header
-    if (!Seek(entry.offset_in_archive)) return std::nullopt;
+    // ⚠️ offset_in_archive is unreliable (never set during write).
+    // Scan sequentially from data_start_offset_ to find the matching path.
+    if (!Seek(data_start_offset_)) return std::nullopt;
 
-    // Read and skip header fields to get to data
-    uint16_t path_len;
-    if (!ReadUint16(path_len)) return std::nullopt;
-    Seek(Tell() + path_len);  // skip path
-    Seek(Tell() + 1);         // skip file_type
-    Seek(Tell() + 4);         // skip file_mode
+    // Get file size to compute footer offset (footer = file_count(8) + checksum(32))
+    file_.seekg(0, std::ios::end);
+    uint64_t file_size = static_cast<uint64_t>(file_.tellg());
+    uint64_t footer_start = (file_size > 40) ? (file_size - 40) : 0;
+    file_.seekg(data_start_offset_, std::ios::beg);
 
-    uint64_t original_size, stored_size;
-    if (!ReadUint64(original_size)) return std::nullopt;
-    if (!ReadUint64(stored_size)) return std::nullopt;
+    while (Tell() < footer_start) {
+        // Read path
+        uint16_t path_len;
+        if (!ReadUint16(path_len)) return std::nullopt;
+        std::string path(path_len, '\0');
+        if (!ReadBytes(&path[0], path_len)) return std::nullopt;
 
-    // Read file data
-    std::vector<uint8_t> data(stored_size);
-    if (stored_size > 0) {
-        if (!ReadBytes(data.data(), stored_size)) {
-            LOG_ERROR << "Failed to read file data for: " << entry.metadata.path;
-            return std::nullopt;
+        // Read metadata
+        uint8_t  ftype;
+        uint32_t mode;
+        uint64_t original_size, stored_size;
+        if (!ReadBytes(&ftype, 1)) return std::nullopt;
+        if (!ReadUint32(mode)) return std::nullopt;
+        if (!ReadUint64(original_size)) return std::nullopt;
+        if (!ReadUint64(stored_size)) return std::nullopt;
+
+        if (path == entry.metadata.path) {
+            // Found the matching file — read its data
+            std::vector<uint8_t> data(stored_size);
+            if (stored_size > 0) {
+                if (!ReadBytes(data.data(), stored_size)) {
+                    LOG_ERROR << "Failed to read file data for: " << entry.metadata.path;
+                    return std::nullopt;
+                }
+            }
+            return data;
+        } else {
+            // Skip this file's data and continue scanning
+            if (stored_size > 0) {
+                if (!Seek(Tell() + stored_size)) return std::nullopt;
+            }
         }
     }
-    return data;
+
+    LOG_ERROR << "File not found in archive data section: " << entry.metadata.path;
+    return std::nullopt;
 }
 
 bool BackupArchiveReader::ExtractFile(const BackupFileEntry& entry,
@@ -373,10 +397,34 @@ bool BackupArchiveReader::ExtractFile(const BackupFileEntry& entry,
         }
 
         case FileType::kFifo: {
+            // Remove existing file/dir/symlink if present (overwrite mode)
+            unlink(dest_path.c_str());
             if (mkfifo(dest_path.c_str(), entry.metadata.mode) != 0) {
-                LOG_ERROR << "Failed to create FIFO: " << dest_path;
+                LOG_ERROR << "Failed to create FIFO: " << dest_path
+                          << ": " << strerror(errno);
                 return false;
             }
+            return true;
+        }
+
+        case FileType::kHardLink: {
+            // Recreate hardlink pointing to the original file
+            // The symlink_target field stores the relative path of the first inode occurrence
+            std::string target_path = FileUtils::JoinPath(dest_base_dir,
+                                                          entry.metadata.symlink_target);
+            // Ensure parent directory exists
+            std::string parent = FileUtils::GetParentPath(dest_path);
+            if (!parent.empty()) {
+                FileUtils::CreateDirectoryRecursive(parent);
+            }
+            // Remove existing destination if present (link() requires it not exist)
+            unlink(dest_path.c_str());
+            if (link(target_path.c_str(), dest_path.c_str()) != 0) {
+                LOG_ERROR << "Failed to create hardlink: " << dest_path
+                          << " -> " << target_path << ": " << strerror(errno);
+                return false;
+            }
+            LOG_INFO << "Restored hardlink: " << entry.metadata.path;
             return true;
         }
 
@@ -413,12 +461,33 @@ bool BackupArchiveReader::ExtractFile(const BackupFileEntry& entry,
         }
 
         case FileType::kBlockDevice:
-        case FileType::kCharDevice:
-            LOG_WARNING << "Skipping device file restore: " << entry.metadata.path;
-            return true;  // Not an error, just skip
+        case FileType::kCharDevice: {
+            // Recreate device node with mknod
+            std::string parent = FileUtils::GetParentPath(dest_path);
+            if (!parent.empty()) {
+                FileUtils::CreateDirectoryRecursive(parent);
+            }
+            dev_t dev = makedev(entry.metadata.dev_major, entry.metadata.dev_minor);
+            mode_t node_mode = entry.metadata.mode;
+            if (entry.metadata.type == FileType::kBlockDevice)
+                node_mode |= S_IFBLK;
+            else
+                node_mode |= S_IFCHR;
+
+            if (mknod(dest_path.c_str(), node_mode, dev) != 0) {
+                LOG_ERROR << "Failed to create device node: " << dest_path
+                          << " (" << entry.metadata.dev_major << ","
+                          << entry.metadata.dev_minor << "): " << strerror(errno);
+                return false;
+            }
+            LOG_INFO << "Restored device node: " << entry.metadata.path;
+            return true;
+        }
 
         case FileType::kSocket:
-            LOG_WARNING << "Skipping socket restore: " << entry.metadata.path;
+            // Sockets are transient runtime objects; cannot be meaningfully restored.
+            // Log and skip (not an error).
+            LOG_INFO << "Skipping socket (transient): " << entry.metadata.path;
             return true;
 
         default:
@@ -443,7 +512,7 @@ bool BackupArchiveReader::VerifyIntegrity() {
     uint64_t file_size = file_.tellg();
     file_.seekg(0, std::ios::beg);
 
-    // Read everything except last 32 bytes (the checksum)
+    // Read everything except the last 32 bytes (the checksum)
     uint64_t to_hash = file_size - 32;
     std::vector<uint8_t> buffer(1024 * 1024);
     while (to_hash > 0) {

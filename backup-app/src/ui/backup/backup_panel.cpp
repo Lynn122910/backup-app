@@ -25,7 +25,7 @@ BackupPanel::BackupPanel(QWidget* parent)
 }
 
 BackupPanel::~BackupPanel() {
-    if (worker_thread_ && worker_thread_->isRunning()) {
+    if (worker_thread_ && worker_thread_->isRunning() && engine_) {
         engine_->Cancel();
         worker_thread_->quit();
         worker_thread_->wait(5000);
@@ -124,7 +124,7 @@ void BackupPanel::SetupUI() {
 
     log_output_ = new QTextEdit();
     log_output_->setReadOnly(true);
-    log_output_->setMaximumBlockCount(500);
+    log_output_->document()->setMaximumBlockCount(500);
     log_output_->setFont(QFont("Monospace", 10));
     log_output_->setStyleSheet("background: #1e1e1e; color: #d4d4d4;");
     log_layout->addWidget(log_output_);
@@ -180,11 +180,19 @@ void BackupPanel::OnStartBackup() {
         return;
     }
 
+    // Guard against double-click
+    if (running_) return;
+    running_ = true;
+
     // Reset UI
     log_output_->clear();
     progress_bar_->setValue(0);
     progress_bar_->setFormat(tr("Starting..."));
     stats_label_->clear();
+
+    // ⚠️ Gather options in MAIN thread before engine moves to worker thread.
+    // Accessing QLineEdit::text() from a worker thread is undefined behavior.
+    backup::BackupOptions options = GatherOptions();
 
     // Create engine and thread
     engine_ = new backup::BackupEngine();
@@ -192,10 +200,9 @@ void BackupPanel::OnStartBackup() {
 
     engine_->moveToThread(worker_thread_);
 
-    // Connect signals
-    connect(worker_thread_, &QThread::started, engine_, [this]() {
-        auto options = GatherOptions();
-        engine_->Execute(options);
+    // Connect signals (capture engine + options by value — no 'this' access in worker)
+    connect(worker_thread_, &QThread::started, engine_, [engine = engine_, options]() {
+        engine->Execute(options);
     });
 
     connect(engine_, &backup::BackupEngine::ProgressUpdated,
@@ -222,7 +229,7 @@ void BackupPanel::OnStartBackup() {
 }
 
 void BackupPanel::OnCancelBackup() {
-    if (engine_) {
+    if (running_ && engine_) {
         engine_->Cancel();
         cancel_btn_->setEnabled(false);
         status_label_->setText(tr("Cancelling..."));
@@ -281,9 +288,7 @@ void BackupPanel::OnBackupCompleted(bool success, const QString& message) {
 
     emit OperationFinished(success, message);
 
-    // Cleanup thread references
-    worker_thread_ = nullptr;
-    engine_ = nullptr;
+    running_ = false;
 }
 
 void BackupPanel::OnLogMessage(const QString& level, const QString& message) {

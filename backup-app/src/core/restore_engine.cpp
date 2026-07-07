@@ -19,7 +19,9 @@ struct RestoreEngine::Impl {
 RestoreEngine::RestoreEngine(QObject* parent)
     : QObject(parent)
     , impl_(std::make_unique<Impl>())
-{}
+{
+    qRegisterMetaType<backup::BackupProgress>("backup::BackupProgress");
+}
 
 RestoreEngine::~RestoreEngine() = default;
 
@@ -195,8 +197,27 @@ bool RestoreEngine::DoRestore(const RestoreOptions& options,
                                const std::shared_ptr<BackupManifest>& manifest) {
     auto files = manifest->files();
 
+    // ── Reorder: hardlinks LAST ──────────────────────────────────────
+    // Hardlinks depend on the original inode already existing on disk.
+    // If a hardlink entry sorts before its target file in the manifest,
+    // link() will fail with ENOENT.  Move all hardlink entries to the
+    // end so that regular files (the first occurrence of each inode) are
+    // restored first.
+    std::vector<BackupFileEntry> ordered;
+    ordered.reserve(files.size());
+    for (const auto& f : files) {
+        if (f.metadata.type != FileType::kHardLink) {
+            ordered.push_back(f);
+        }
+    }
+    for (const auto& f : files) {
+        if (f.metadata.type == FileType::kHardLink) {
+            ordered.push_back(f);
+        }
+    }
+
     BackupProgress progress;
-    progress.total_files = files.size();
+    progress.total_files = ordered.size();
     progress.is_running  = true;
     progress.total_bytes = manifest->total_size();
 
@@ -209,13 +230,15 @@ bool RestoreEngine::DoRestore(const RestoreOptions& options,
         return false;
     }
 
-    for (size_t i = 0; i < files.size(); ++i) {
+    int failed_count = 0;
+
+    for (size_t i = 0; i < ordered.size(); ++i) {
         if (impl_->cancelled.load(std::memory_order_acquire)) {
             reader.Close();
             return false;
         }
 
-        const auto& entry = files[i];
+        const auto& entry = ordered[i];
 
         progress.processed_files = i + 1;
         progress.processed_bytes += entry.metadata.size;
@@ -247,23 +270,42 @@ bool RestoreEngine::DoRestore(const RestoreOptions& options,
         emit LogMessage("INFO",
                         QString("[%1/%2] Restoring: %3")
                         .arg(i + 1)
-                        .arg(files.size())
+                        .arg(ordered.size())
                         .arg(QString::fromStdString(entry.metadata.path)));
 
         // Extract file from archive to disk
         if (!reader.ExtractFile(entry, options.dest_dir)) {
             LOG_ERROR << "Failed to extract: " << entry.metadata.path;
-            reader.Close();
-            return false;
+            emit LogMessage("ERROR",
+                            QString("Failed to restore: %1")
+                            .arg(QString::fromStdString(entry.metadata.path)));
+            ++failed_count;
+            continue;  // Keep going — don't abort the whole restore
         }
 
-        // Restore metadata
-        if (options.restore_metadata && entry.metadata.type == FileType::kRegular) {
-            MetadataHandler::Apply(entry.metadata, dest_path);
+        // Restore metadata (permissions, timestamps, ownership, xattrs)
+        // Applies to directories, regular files, symlinks, hardlinks, and FIFOs.
+        // Device files and other special types are skipped (metadata not meaningful).
+        if (options.restore_metadata) {
+            bool supported = (entry.metadata.type == FileType::kRegular ||
+                              entry.metadata.type == FileType::kDirectory ||
+                              entry.metadata.type == FileType::kSymlink ||
+                              entry.metadata.type == FileType::kFifo);
+            if (supported) {
+                MetadataHandler::Apply(entry.metadata, dest_path);
+            }
         }
     }
 
     reader.Close();
+
+    if (failed_count > 0) {
+        LOG_WARNING << "Restore completed with " << failed_count << " file(s) failed";
+        emit LogMessage("WARN",
+                        QString("Restore completed with %1 file(s) failed — see log for details")
+                        .arg(failed_count));
+    }
+
     return true;
 }
 

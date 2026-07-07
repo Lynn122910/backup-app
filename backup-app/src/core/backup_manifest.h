@@ -18,6 +18,15 @@ public:
     BackupManifest();
     ~BackupManifest();
 
+    // Make movable (unique_ptr<Impl> prevents copy, destructor suppresses implicit move)
+    // Defined in .cpp where Impl is complete — defaulting here would require Impl to be complete
+    BackupManifest(BackupManifest&&) noexcept;
+    BackupManifest& operator=(BackupManifest&&) noexcept;
+
+    // Non-copyable
+    BackupManifest(const BackupManifest&) = delete;
+    BackupManifest& operator=(const BackupManifest&) = delete;
+
     // ========== Basic properties ==========
 
     std::string manifest_version() const;

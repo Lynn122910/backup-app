@@ -1,6 +1,8 @@
 #pragma once
 
 #include "common/types.h"
+#include <sys/stat.h>
+#include <sys/types.h>
 #include <string>
 #include <vector>
 #include <functional>
@@ -16,6 +18,11 @@ class FileScanner {
 public:
     FileScanner();
     ~FileScanner();
+
+    FileScanner(FileScanner&&) = default;
+    FileScanner& operator=(FileScanner&&) = default;
+    FileScanner(const FileScanner&) = delete;
+    FileScanner& operator=(const FileScanner&) = delete;
 
     /// Scan a directory recursively, returning file metadata for all entries
     /// @param root_path  Absolute path to scan
@@ -43,7 +50,7 @@ private:
     /// Gather metadata for a single file
     FileMetadata GatherMetadata(const std::string& full_path,
                                 const std::string& relative_path,
-                                const struct stat& st);
+                                const struct ::stat& st);
 
     /// Determine file type from st_mode
     static FileType ModeToFileType(mode_t mode);
@@ -52,9 +59,9 @@ private:
     std::map<std::string, std::string> ReadXattrs(const std::string& path);
 
     /// Read timestamps with nanosecond precision from stat
-    static int64_t StatMtimeNsec(const struct stat& st);
-    static int64_t StatAtimeNsec(const struct stat& st);
-    static int64_t StatCtimeNsec(const struct stat& st);
+    static int64_t StatMtimeNsec(const struct ::stat& st);
+    static int64_t StatAtimeNsec(const struct ::stat& st);
+    static int64_t StatCtimeNsec(const struct ::stat& st);
 
     /// Resolve username from UID
     static std::string ResolveUserName(uint32_t uid);
@@ -64,6 +71,7 @@ private:
 
     std::atomic<bool> cancelled_{false};
     uint64_t total_found_ = 0;
+    std::map<uint64_t, std::string> inode_map_;  // inode → first-seen relative path (hardlink detection)
 };
 
 } // namespace backup

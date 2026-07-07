@@ -63,4 +63,5 @@ private:
     // Engine and thread
     QThread*      worker_thread_  = nullptr;
     backup::BackupEngine* engine_ = nullptr;
+    bool          running_        = false;
 };

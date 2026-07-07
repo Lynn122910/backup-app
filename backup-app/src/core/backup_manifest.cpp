@@ -33,6 +33,9 @@ struct BackupManifest::Impl {
 BackupManifest::BackupManifest() : impl_(std::make_unique<Impl>()) {}
 BackupManifest::~BackupManifest() = default;
 
+BackupManifest::BackupManifest(BackupManifest&&) noexcept = default;
+BackupManifest& BackupManifest::operator=(BackupManifest&&) noexcept = default;
+
 // ============================================================
 // Property accessors
 // ============================================================
@@ -100,7 +103,7 @@ size_t BackupManifest::file_count() const {
 std::optional<BackupFileEntry> BackupManifest::FindByPath(const std::string& path) const {
     for (const auto& entry : impl_->files) {
         if (entry.metadata.path == path) {
-            return entry;
+            return std::make_optional(entry);
         }
     }
     return std::nullopt;
@@ -197,7 +200,10 @@ std::string BackupManifest::ToJson() const {
         oss << ",\n";
         oss << "    \"mtime\": " << f.metadata.mtime_nsec << ",\n";
         oss << "    \"atime\": " << f.metadata.atime_nsec << ",\n";
+        oss << "    \"ctime\": " << f.metadata.ctime_nsec << ",\n";
         oss << "    \"inode\": " << f.metadata.inode << ",\n";
+        oss << "    \"dev_major\": " << f.metadata.dev_major << ",\n";
+        oss << "    \"dev_minor\": " << f.metadata.dev_minor << ",\n";
         if (!f.metadata.symlink_target.empty()) {
             WriteJsonKeyValue(oss, "symlink_target", f.metadata.symlink_target);
             oss << ",\n";
@@ -286,8 +292,17 @@ std::optional<BackupManifest> BackupManifest::FromJson(const std::string& json) 
         auto atime = json::ExtractIntValue(file_obj, "atime");
         entry.metadata.atime_nsec = atime.value_or(0);
 
+        auto ctime = json::ExtractIntValue(file_obj, "ctime");
+        entry.metadata.ctime_nsec = ctime.value_or(0);
+
         auto inode = json::ExtractUintValue(file_obj, "inode");
         entry.metadata.inode = inode.value_or(0);
+
+        auto dev_major = json::ExtractUintValue(file_obj, "dev_major");
+        entry.metadata.dev_major = static_cast<uint32_t>(dev_major.value_or(0));
+
+        auto dev_minor = json::ExtractUintValue(file_obj, "dev_minor");
+        entry.metadata.dev_minor = static_cast<uint32_t>(dev_minor.value_or(0));
 
         auto symlink = json::ExtractStringValue(file_obj, "symlink_target");
         entry.metadata.symlink_target = symlink.value_or("");
@@ -304,7 +319,7 @@ std::optional<BackupManifest> BackupManifest::FromJson(const std::string& json) 
         manifest.AddFileEntry(entry);
     }
 
-    return manifest;
+    return std::optional<BackupManifest>(std::move(manifest));
 }
 
 bool BackupManifest::WriteToFile(const std::string& file_path) const {

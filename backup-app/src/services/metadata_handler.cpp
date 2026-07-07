@@ -45,7 +45,7 @@ int MetadataHandler::ApplyPermissions(const FileMetadata& meta, const std::strin
     if (path.empty()) return -1;
 
     // Don't change permissions of symlinks (chmod follows the target)
-    struct stat st;
+    struct ::stat st;
     if (lstat(path.c_str(), &st) == 0 && S_ISLNK(st.st_mode)) {
         return 0;  // Skip symlinks
     }
@@ -68,23 +68,13 @@ int MetadataHandler::ApplyTimestamps(const FileMetadata& meta, const std::string
     times[1].tv_sec  = meta.mtime_nsec / 1000000000LL;
     times[1].tv_nsec = meta.mtime_nsec % 1000000000LL;
 
-    // Use utimensat for better precision, fall back to utimes
-    int fd = open(path.c_str(), O_RDONLY | O_NOFOLLOW);
-    if (fd >= 0) {
-        if (futimens(fd, times) != 0) {
-            LOG_WARNING << "Failed to set timestamps on " << path
-                        << ": " << strerror(errno);
-            close(fd);
-            return -1;
-        }
-        close(fd);
-    } else {
-        // Fallback for symlinks etc.
-        if (utimensat(AT_FDCWD, path.c_str(), times, AT_SYMLINK_NOFOLLOW) != 0) {
-            LOG_WARNING << "Failed to set timestamps on " << path
-                        << ": " << strerror(errno);
-            return -1;
-        }
+    // Use utimensat with AT_SYMLINK_NOFOLLOW — no open() needed, so this
+    // never blocks on FIFOs (POSIX FIFO open-for-read blocks until a writer
+    // connects, which would hang the restore).
+    if (utimensat(AT_FDCWD, path.c_str(), times, AT_SYMLINK_NOFOLLOW) != 0) {
+        LOG_WARNING << "Failed to set timestamps on " << path
+                    << ": " << strerror(errno);
+        return -1;
     }
     return 0;
 }
@@ -93,7 +83,7 @@ int MetadataHandler::ApplyOwnership(const FileMetadata& meta, const std::string&
     if (path.empty()) return -1;
 
     // Skip symlinks
-    struct stat st;
+    struct ::stat st;
     if (lstat(path.c_str(), &st) == 0 && S_ISLNK(st.st_mode)) {
         return 0;
     }

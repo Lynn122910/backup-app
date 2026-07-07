@@ -24,7 +24,7 @@ RestorePanel::RestorePanel(QWidget* parent)
 }
 
 RestorePanel::~RestorePanel() {
-    if (worker_thread_ && worker_thread_->isRunning()) {
+    if (worker_thread_ && worker_thread_->isRunning() && engine_) {
         engine_->Cancel();
         worker_thread_->quit();
         worker_thread_->wait(5000);
@@ -118,7 +118,7 @@ void RestorePanel::SetupUI() {
 
     log_output_ = new QTextEdit();
     log_output_->setReadOnly(true);
-    log_output_->setMaximumBlockCount(500);
+    log_output_->document()->setMaximumBlockCount(500);
     log_output_->setFont(QFont("Monospace", 10));
     log_output_->setStyleSheet("background: #1e1e1e; color: #d4d4d4;");
     log_layout->addWidget(log_output_);
@@ -174,11 +174,19 @@ void RestorePanel::OnStartRestore() {
         return;
     }
 
+    // Guard against double-click
+    if (running_) return;
+    running_ = true;
+
     // Reset UI
     log_output_->clear();
     progress_bar_->setValue(0);
     progress_bar_->setFormat(tr("Starting..."));
     stats_label_->clear();
+
+    // ⚠️ Gather options in MAIN thread before engine moves to worker thread.
+    // Accessing QLineEdit::text() from a worker thread is undefined behavior.
+    backup::RestoreOptions options = GatherOptions();
 
     // Create engine and thread
     engine_ = new backup::RestoreEngine();
@@ -186,9 +194,8 @@ void RestorePanel::OnStartRestore() {
 
     engine_->moveToThread(worker_thread_);
 
-    connect(worker_thread_, &QThread::started, engine_, [this]() {
-        auto options = GatherOptions();
-        engine_->Execute(options);
+    connect(worker_thread_, &QThread::started, engine_, [engine = engine_, options]() {
+        engine->Execute(options);
     });
 
     connect(engine_, &backup::RestoreEngine::ProgressUpdated,
@@ -213,7 +220,7 @@ void RestorePanel::OnStartRestore() {
 }
 
 void RestorePanel::OnCancelRestore() {
-    if (engine_) {
+    if (running_ && engine_) {
         engine_->Cancel();
         cancel_btn_->setEnabled(false);
         status_label_->setText(tr("Cancelling..."));
@@ -269,8 +276,7 @@ void RestorePanel::OnRestoreCompleted(bool success, const QString& message) {
 
     emit OperationFinished(success, message);
 
-    worker_thread_ = nullptr;
-    engine_ = nullptr;
+    running_ = false;
 }
 
 void RestorePanel::OnLogMessage(const QString& level, const QString& message) {

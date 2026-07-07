@@ -55,7 +55,7 @@ std::vector<BackupTaskConfig> ConfigManager::GetBackupTasks() const {
 
 std::optional<BackupTaskConfig> ConfigManager::GetTask(const std::string& task_id) const {
     for (const auto& task : tasks_) {
-        if (task.id == task_id) return task;
+        if (task.id == task_id) return std::make_optional(task);
     }
     return std::nullopt;
 }

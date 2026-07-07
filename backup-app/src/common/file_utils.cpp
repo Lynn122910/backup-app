@@ -14,30 +14,30 @@
 namespace backup {
 
 bool FileUtils::Exists(const std::string& path) {
-    struct stat st;
+    struct ::stat st;
     return stat(path.c_str(), &st) == 0;
 }
 
 bool FileUtils::IsDirectory(const std::string& path) {
-    struct stat st;
+    struct ::stat st;
     if (stat(path.c_str(), &st) != 0) return false;
     return S_ISDIR(st.st_mode);
 }
 
 bool FileUtils::IsRegularFile(const std::string& path) {
-    struct stat st;
+    struct ::stat st;
     if (stat(path.c_str(), &st) != 0) return false;
     return S_ISREG(st.st_mode);
 }
 
 bool FileUtils::IsSymlink(const std::string& path) {
-    struct stat st;
+    struct ::stat st;
     if (lstat(path.c_str(), &st) != 0) return false;
     return S_ISLNK(st.st_mode);
 }
 
 uint64_t FileUtils::GetFileSize(const std::string& path) {
-    struct stat st;
+    struct ::stat st;
     if (stat(path.c_str(), &st) != 0) return 0;
     return static_cast<uint64_t>(st.st_size);
 }
@@ -49,7 +49,7 @@ bool FileUtils::CreateDirectoryRecursive(const std::string& path) {
     std::string norm_path = NormalizePath(path);
 
     // Already exists
-    struct stat st;
+    struct ::stat st;
     if (stat(norm_path.c_str(), &st) == 0) {
         return S_ISDIR(st.st_mode);
     }

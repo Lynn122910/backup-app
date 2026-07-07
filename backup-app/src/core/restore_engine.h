@@ -26,6 +26,12 @@ public:
     explicit RestoreEngine(QObject* parent = nullptr);
     ~RestoreEngine();
 
+    // QObject is non-movable; these are implicitly deleted
+    RestoreEngine(RestoreEngine&&) = delete;
+    RestoreEngine& operator=(RestoreEngine&&) = delete;
+    RestoreEngine(const RestoreEngine&) = delete;
+    RestoreEngine& operator=(const RestoreEngine&) = delete;
+
     /// Set progress callback
     void SetProgressCallback(RestoreProgressCallback cb);
 

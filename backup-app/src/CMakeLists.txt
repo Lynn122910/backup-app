@@ -29,6 +29,7 @@ target_include_directories(backup_core PUBLIC ${COMMON_INCLUDE})
 target_link_libraries(backup_core PUBLIC
     backup_services
     ${JSON_LIB}
+    ${QT_LIBS}
     ZLIB::ZLIB
     OpenSSL::Crypto
     OpenSSL::SSL

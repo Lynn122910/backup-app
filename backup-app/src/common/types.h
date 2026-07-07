@@ -70,6 +70,7 @@ struct FileMetadata {
     uint32_t    dev_major = 0;      // Device major number
     uint32_t    dev_minor = 0;      // Device minor number
     std::string symlink_target;     // Symlink target path
+    std::map<std::string, std::string> xattrs;  // Extended attributes
 
     /// Returns a human-readable file type icon/indicator for display
     std::string TypeString() const { return FileTypeToString(type); }

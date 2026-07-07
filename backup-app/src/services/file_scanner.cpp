@@ -29,9 +29,10 @@ std::vector<FileMetadata> FileScanner::Scan(const std::string& root_path,
                                              ScanProgressCallback progress_cb) {
     std::vector<FileMetadata> results;
     cancelled_.store(false, std::memory_order_release);
+    inode_map_.clear();  // Reset hardlink tracking for each scan
 
     // Verify root path exists
-    struct stat root_st;
+    struct ::stat root_st;
     if (stat(root_path.c_str(), &root_st) != 0) {
         LOG_ERROR << "Source directory not found: " << root_path;
         return results;
@@ -108,7 +109,7 @@ void FileScanner::ScanRecursive(const std::string& root_path,
             : relative_dir + "/" + entry->d_name;
         std::string child_full = root_path + "/" + child_rel;
 
-        struct stat st;
+        struct ::stat st;
         if (lstat(child_full.c_str(), &st) != 0) {
             LOG_WARNING << "Cannot stat: " << child_full << " - " << strerror(errno);
             continue;
@@ -116,6 +117,21 @@ void FileScanner::ScanRecursive(const std::string& root_path,
 
         // Gather metadata
         FileMetadata meta = GatherMetadata(child_full, child_rel, st);
+
+        // Hardlink detection: if we've seen this inode before, mark as kHardLink
+        if (meta.type == FileType::kRegular && st.st_nlink > 1) {
+            auto it = inode_map_.find(meta.inode);
+            if (it != inode_map_.end()) {
+                // Duplicate inode → this is a hardlink
+                meta.type = FileType::kHardLink;
+                meta.symlink_target = it->second;  // Path to the first occurrence
+                meta.size = 0;  // Hardlinks carry no data of their own
+            } else {
+                // First time seeing this inode → track it
+                inode_map_[meta.inode] = child_rel;
+            }
+        }
+
         results.push_back(meta);
         ++total_found_;
 
@@ -138,7 +154,7 @@ void FileScanner::ScanRecursive(const std::string& root_path,
 
 FileMetadata FileScanner::GatherMetadata(const std::string& full_path,
                                           const std::string& relative_path,
-                                          const struct stat& st) {
+                                          const struct ::stat& st) {
     FileMetadata meta;
     meta.path    = relative_path;
     meta.type    = ModeToFileType(st.st_mode);
@@ -194,7 +210,7 @@ FileType FileScanner::ModeToFileType(mode_t mode) {
     return FileType::kUnknown;
 }
 
-int64_t FileScanner::StatMtimeNsec(const struct stat& st) {
+int64_t FileScanner::StatMtimeNsec(const struct ::stat& st) {
     int64_t nsec = static_cast<int64_t>(st.st_mtim.tv_sec) * 1000000000LL;
 #ifdef st_mtime  // POSIX.1-2008
     nsec += st.st_mtim.tv_nsec;
@@ -204,7 +220,7 @@ int64_t FileScanner::StatMtimeNsec(const struct stat& st) {
     return nsec;
 }
 
-int64_t FileScanner::StatAtimeNsec(const struct stat& st) {
+int64_t FileScanner::StatAtimeNsec(const struct ::stat& st) {
     int64_t nsec = static_cast<int64_t>(st.st_atim.tv_sec) * 1000000000LL;
 #ifdef st_atime
     nsec += st.st_atim.tv_nsec;
@@ -212,7 +228,7 @@ int64_t FileScanner::StatAtimeNsec(const struct stat& st) {
     return nsec;
 }
 
-int64_t FileScanner::StatCtimeNsec(const struct stat& st) {
+int64_t FileScanner::StatCtimeNsec(const struct ::stat& st) {
     int64_t nsec = static_cast<int64_t>(st.st_ctim.tv_sec) * 1000000000LL;
 #ifdef st_ctime
     nsec += st.st_ctim.tv_nsec;
