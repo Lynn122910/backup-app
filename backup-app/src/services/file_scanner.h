@@ -58,6 +58,15 @@ private:
     /// Read extended attributes
     std::map<std::string, std::string> ReadXattrs(const std::string& path);
 
+    /// Read POSIX ACL (Linux, requires libacl)
+    static std::string ReadAcl(const std::string& path);
+
+    /// Read Linux capabilities (requires libcap)
+    static std::string ReadCapabilities(const std::string& path);
+
+    /// Read SELinux security context (Linux)
+    static std::string ReadSelinuxContext(const std::string& path);
+
     /// Read timestamps with nanosecond precision from stat
     static int64_t StatMtimeNsec(const struct ::stat& st);
     static int64_t StatAtimeNsec(const struct ::stat& st);

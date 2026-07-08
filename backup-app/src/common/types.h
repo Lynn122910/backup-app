@@ -72,6 +72,11 @@ struct FileMetadata {
     std::string symlink_target;     // Symlink target path
     std::map<std::string, std::string> xattrs;  // Extended attributes
 
+    // ── Advanced metadata (Linux) ─────────────────────────────
+    std::string acl_text;           // POSIX ACL in getfacl/setfacl text format
+    std::string capabilities_text;  // Linux capabilities in getcap/setcap text format
+    std::string selinux_context;    // SELinux security context
+
     /// Returns a human-readable file type icon/indicator for display
     std::string TypeString() const { return FileTypeToString(type); }
 };
@@ -302,9 +307,14 @@ inline std::optional<std::string> ExtractStringValue(const std::string& json, co
     pos = json.find('"', pos + 1);
     if (pos == std::string::npos) return std::nullopt;
 
-    // Find closing quote
-    size_t end = json.find('"', pos + 1);
-    if (end == std::string::npos) return std::nullopt;
+    // Find closing quote — skip escaped quotes (\")
+    size_t end = pos + 1;
+    while (end < json.size()) {
+        if (json[end] == '"') break;
+        if (json[end] == '\\' && end + 1 < json.size()) ++end;  // skip escaped char
+        ++end;
+    }
+    if (end >= json.size()) return std::nullopt;
 
     return UnescapeString(json.substr(pos + 1, end - pos - 1));
 }

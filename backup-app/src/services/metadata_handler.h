@@ -6,13 +6,14 @@
 
 namespace backup {
 
-/// Handles reading and applying file metadata (permissions, timestamps, ownership, xattrs)
+/// Handles reading and applying file metadata (permissions, timestamps, ownership,
+/// xattrs, ACLs, capabilities, SELinux context).
 class MetadataHandler {
 public:
     /// Apply all metadata from a FileMetadata struct to a file on disk
     /// @param meta  The metadata to apply
     /// @param full_path  Absolute path to the target file
-    /// @return 0 on success, -1 on partial failure (best-effort)
+    /// @return 0 on success, positive count of non-critical failures
     static int Apply(const FileMetadata& meta, const std::string& full_path);
 
     /// Apply only permissions (mode)
@@ -27,6 +28,15 @@ public:
     /// Apply extended attributes
     static int ApplyXattrs(const std::map<std::string, std::string>& xattrs,
                            const std::string& path);
+
+    /// Apply POSIX ACL from text representation
+    static int ApplyAcl(const std::string& acl_text, const std::string& path);
+
+    /// Apply Linux capabilities from text representation
+    static int ApplyCapabilities(const std::string& cap_text, const std::string& path);
+
+    /// Apply SELinux security context
+    static int ApplySelinuxContext(const std::string& context, const std::string& path);
 
 private:
     MetadataHandler() = delete;

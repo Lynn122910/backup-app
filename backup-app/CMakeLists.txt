@@ -46,6 +46,37 @@ else()
     set(SPDLOG_LIB "")
 endif()
 
+# ── Optional libraries for advanced metadata ──────────────────
+# libacl  — POSIX ACL support (getfacl/setfacl)
+find_library(LIBACL_LIB acl)
+find_path(LIBACL_INCLUDE sys/acl.h)
+if(LIBACL_LIB AND LIBACL_INCLUDE)
+    set(HAVE_ACL TRUE)
+    message(STATUS "Found libacl — POSIX ACL support enabled")
+else()
+    message(STATUS "libacl not found — POSIX ACL support disabled")
+endif()
+
+# libcap  — Linux capabilities support (getcap/setcap)
+find_library(LIBCAP_LIB cap)
+find_path(LIBCAP_INCLUDE sys/capability.h)
+if(LIBCAP_LIB AND LIBCAP_INCLUDE)
+    set(HAVE_CAP TRUE)
+    message(STATUS "Found libcap — Linux capabilities support enabled")
+else()
+    message(STATUS "libcap not found — capabilities support disabled")
+endif()
+
+# libselinux — SELinux context support
+find_library(LIBSELINUX_LIB selinux)
+find_path(LIBSELINUX_INCLUDE selinux/selinux.h)
+if(LIBSELINUX_LIB AND LIBSELINUX_INCLUDE)
+    set(HAVE_SELINUX TRUE)
+    message(STATUS "Found libselinux — SELinux context support enabled")
+else()
+    message(STATUS "libselinux not found — SELinux context support disabled")
+endif()
+
 # Options
 option(BUILD_TESTS "Build unit tests" OFF)
 

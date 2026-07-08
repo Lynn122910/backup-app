@@ -283,8 +283,9 @@ bool RestoreEngine::DoRestore(const RestoreOptions& options,
             continue;  // Keep going — don't abort the whole restore
         }
 
-        // Restore metadata (permissions, timestamps, ownership, xattrs)
-        // Applies to directories, regular files, symlinks, hardlinks, and FIFOs.
+        // Restore metadata (permissions, timestamps, ownership, xattrs,
+        // ACLs, capabilities, SELinux context).
+        // Applies to directories, regular files, symlinks, and FIFOs.
         // Device files and other special types are skipped (metadata not meaningful).
         if (options.restore_metadata) {
             bool supported = (entry.metadata.type == FileType::kRegular ||
@@ -292,7 +293,11 @@ bool RestoreEngine::DoRestore(const RestoreOptions& options,
                               entry.metadata.type == FileType::kSymlink ||
                               entry.metadata.type == FileType::kFifo);
             if (supported) {
-                MetadataHandler::Apply(entry.metadata, dest_path);
+                int meta_errors = MetadataHandler::Apply(entry.metadata, dest_path);
+                if (meta_errors > 0) {
+                    LOG_WARNING << "Metadata partially failed for: " << entry.metadata.path
+                                << " (" << meta_errors << " aspect(s))";
+                }
             }
         }
     }

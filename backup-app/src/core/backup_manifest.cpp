@@ -208,6 +208,18 @@ std::string BackupManifest::ToJson() const {
             WriteJsonKeyValue(oss, "symlink_target", f.metadata.symlink_target);
             oss << ",\n";
         }
+        if (!f.metadata.acl_text.empty()) {
+            WriteJsonKeyValue(oss, "acl_text", f.metadata.acl_text);
+            oss << ",\n";
+        }
+        if (!f.metadata.capabilities_text.empty()) {
+            WriteJsonKeyValue(oss, "capabilities_text", f.metadata.capabilities_text);
+            oss << ",\n";
+        }
+        if (!f.metadata.selinux_context.empty()) {
+            WriteJsonKeyValue(oss, "selinux_context", f.metadata.selinux_context);
+            oss << ",\n";
+        }
         WriteJsonKeyValue(oss, "status", f.status);
         oss << ",\n";
         oss << "    \"offset_in_archive\": " << f.offset_in_archive << ",\n";
@@ -306,6 +318,15 @@ std::optional<BackupManifest> BackupManifest::FromJson(const std::string& json) 
 
         auto symlink = json::ExtractStringValue(file_obj, "symlink_target");
         entry.metadata.symlink_target = symlink.value_or("");
+
+        auto acl = json::ExtractStringValue(file_obj, "acl_text");
+        entry.metadata.acl_text = acl.value_or("");
+
+        auto caps = json::ExtractStringValue(file_obj, "capabilities_text");
+        entry.metadata.capabilities_text = caps.value_or("");
+
+        auto selinux = json::ExtractStringValue(file_obj, "selinux_context");
+        entry.metadata.selinux_context = selinux.value_or("");
 
         auto status = json::ExtractStringValue(file_obj, "status");
         entry.status = status.value_or("added");

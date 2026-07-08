@@ -16,6 +16,17 @@
 #include <sys/xattr.h>
 #endif
 
+// Advanced metadata (optional, build system may not have these libraries)
+#ifdef HAVE_ACL
+#include <sys/acl.h>
+#endif
+#ifdef HAVE_CAP
+#include <sys/capability.h>
+#endif
+#ifdef HAVE_SELINUX
+#include <selinux/selinux.h>
+#endif
+
 namespace backup {
 
 FileScanner::FileScanner()  = default;
@@ -196,6 +207,11 @@ FileMetadata FileScanner::GatherMetadata(const std::string& full_path,
     // Read extended attributes (Linux)
     meta.xattrs = ReadXattrs(full_path);
 
+    // Read advanced metadata (best-effort, silently skip on failure)
+    meta.acl_text        = ReadAcl(full_path);
+    meta.capabilities_text = ReadCapabilities(full_path);
+    meta.selinux_context = ReadSelinuxContext(full_path);
+
     return meta;
 }
 
@@ -289,6 +305,64 @@ std::map<std::string, std::string> FileScanner::ReadXattrs(const std::string& pa
     }
 #endif
     return attrs;
+}
+
+std::string FileScanner::ReadAcl(const std::string& path) {
+#ifdef HAVE_ACL
+    acl_t acl = acl_get_file(path.c_str(), ACL_TYPE_ACCESS);
+    if (!acl) return "";
+
+    char* text = acl_to_text(acl, nullptr);
+    acl_free(acl);
+    if (!text) return "";
+
+    std::string result(text);
+    acl_free(text);
+
+    // Also try default ACL for directories
+    acl_t def_acl = acl_get_file(path.c_str(), ACL_TYPE_DEFAULT);
+    if (def_acl) {
+        char* def_text = acl_to_text(def_acl, nullptr);
+        acl_free(def_acl);
+        if (def_text) {
+            result += "\n#default:\n";
+            result += def_text;
+            acl_free(def_text);
+        }
+    }
+    return result;
+#else
+    return "";
+#endif
+}
+
+std::string FileScanner::ReadCapabilities(const std::string& path) {
+#ifdef HAVE_CAP
+    cap_t caps = cap_get_file(path.c_str());
+    if (!caps) return "";
+
+    char* text = cap_to_text(caps, nullptr);
+    cap_free(caps);
+    if (!text) return "";
+
+    std::string result(text);
+    cap_free(text);
+    return result;
+#else
+    return "";
+#endif
+}
+
+std::string FileScanner::ReadSelinuxContext(const std::string& path) {
+#ifdef HAVE_SELINUX
+    security_context_t ctx = nullptr;
+    if (getfilecon(path.c_str(), &ctx) < 0) return "";
+    std::string result(ctx);
+    freecon(ctx);
+    return result;
+#else
+    return "";
+#endif
 }
 
 } // namespace backup

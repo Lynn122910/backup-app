@@ -17,6 +17,23 @@ add_library(backup_services STATIC
 target_include_directories(backup_services PUBLIC ${COMMON_INCLUDE})
 target_link_libraries(backup_services PUBLIC backup_common)
 
+# Optional advanced metadata support
+if(HAVE_ACL)
+    target_compile_definitions(backup_services PUBLIC HAVE_ACL)
+    target_include_directories(backup_services PRIVATE ${LIBACL_INCLUDE})
+    target_link_libraries(backup_services PUBLIC ${LIBACL_LIB})
+endif()
+if(HAVE_CAP)
+    target_compile_definitions(backup_services PUBLIC HAVE_CAP)
+    target_include_directories(backup_services PRIVATE ${LIBCAP_INCLUDE})
+    target_link_libraries(backup_services PUBLIC ${LIBCAP_LIB})
+endif()
+if(HAVE_SELINUX)
+    target_compile_definitions(backup_services PUBLIC HAVE_SELINUX)
+    target_include_directories(backup_services PRIVATE ${LIBSELINUX_INCLUDE})
+    target_link_libraries(backup_services PUBLIC ${LIBSELINUX_LIB})
+endif()
+
 # --- Core Library ---
 add_library(backup_core STATIC
     core/backup_manifest.cpp
