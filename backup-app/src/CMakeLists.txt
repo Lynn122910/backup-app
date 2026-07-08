@@ -5,6 +5,7 @@ set(COMMON_INCLUDE ${CMAKE_CURRENT_SOURCE_DIR})
 add_library(backup_common STATIC
     common/logger.cpp
     common/file_utils.cpp
+    common/filter_engine.cpp
 )
 target_include_directories(backup_common PUBLIC ${COMMON_INCLUDE})
 target_link_libraries(backup_common PUBLIC ${SPDLOG_LIB})
@@ -57,6 +58,7 @@ add_executable(backup-app
     main.cpp
     ui/main_window.cpp
     ui/backup/backup_panel.cpp
+    ui/backup/filter_dialog.cpp
     ui/restore/restore_panel.cpp
 )
 target_link_libraries(backup-app PRIVATE

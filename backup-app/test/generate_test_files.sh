@@ -11,7 +11,14 @@
 # ============================================================
 set -e
 
-TARGET="${1:-$HOME/Desktop/backup_test_source}"
+# 获取真实用户的家目录（sudo 时 $HOME 会变成 /root）
+if [ -n "$SUDO_USER" ]; then
+    REAL_HOME=$(eval echo ~"$SUDO_USER")
+else
+    REAL_HOME="$HOME"
+fi
+
+TARGET="${1:-$REAL_HOME/Desktop/backup_test_source}"
 
 echo "========================================="
 echo "  备份工具 — 测试文件生成"

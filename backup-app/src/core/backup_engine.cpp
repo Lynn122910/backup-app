@@ -4,6 +4,7 @@
 #include "services/file_scanner.h"
 #include "common/logger.h"
 #include "common/file_utils.h"
+#include "common/filter_engine.h"
 
 #include <QThread>
 #include <chrono>
@@ -190,6 +191,16 @@ bool BackupEngine::Execute(const BackupOptions& options) {
 std::vector<BackupFileEntry> BackupEngine::PrepareFileList(const BackupOptions& options) {
     FileScanner scanner;
     auto files = scanner.Scan(options.source_dir);
+
+    // Apply filter rules (post-scan)
+    if (!options.filters.empty()) {
+        size_t before = files.size();
+        files = FilterEngine::Apply(files, options.filters);
+        size_t after = files.size();
+        emit LogMessage("INFO",
+                        QString("Filters applied: %1 of %2 files kept (%3 rules)")
+                        .arg(after).arg(before).arg(options.filters.size()));
+    }
 
     std::vector<BackupFileEntry> entries;
     entries.reserve(files.size());

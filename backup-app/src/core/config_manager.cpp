@@ -129,7 +129,15 @@ std::string ConfigManager::ToJson() const {
         oss << "      \"id\": \"" << json::EscapeString(t.id) << "\",\n";
         oss << "      \"name\": \"" << json::EscapeString(t.name) << "\",\n";
         oss << "      \"source_dir\": \"" << json::EscapeString(t.source_dir) << "\",\n";
-        oss << "      \"dest_dir\": \"" << json::EscapeString(t.dest_dir) << "\"\n";
+        oss << "      \"dest_dir\": \"" << json::EscapeString(t.dest_dir) << "\",\n";
+        // Filters
+        oss << "      \"filters\": [\n";
+        for (size_t j = 0; j < t.filters.size(); ++j) {
+            oss << "        " << json::FilterRuleToJson(t.filters[j]);
+            if (j < t.filters.size() - 1) oss << ",";
+            oss << "\n";
+        }
+        oss << "      ]\n";
         oss << "    }";
         if (i < tasks_.size() - 1) oss << ",";
         oss << "\n";
@@ -176,6 +184,12 @@ bool ConfigManager::FromJson(const std::string& json_str) {
 
         auto ddir = json::ExtractStringValue(obj, "dest_dir");
         if (ddir.has_value()) task.dest_dir = ddir.value();
+
+        // Parse filters
+        auto filter_objs = json::ExtractObjectArray(obj, "filters");
+        for (const auto& fobj : filter_objs) {
+            task.filters.push_back(json::FilterRuleFromJson(fobj));
+        }
 
         if (!task.id.empty()) {
             tasks_.push_back(task);

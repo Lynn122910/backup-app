@@ -441,5 +441,132 @@ inline std::vector<std::string> ExtractObjectArray(const std::string& json, cons
     return result;
 }
 
+// ── FilterRule JSON serialization ────────────────────────────
+
+inline std::string FilterRuleToJson(const FilterRule& rule) {
+    std::ostringstream oss;
+    oss << "{\n";
+    oss << "  \"op\": \"" << (rule.op == FilterOp::kInclude ? "include" : "exclude") << "\",\n";
+    oss << "  \"description\": \"" << EscapeString(rule.description) << "\",\n";
+
+    auto write_opt_string = [&](const char* key, const std::optional<std::string>& val) {
+        if (val.has_value())
+            oss << "  \"" << key << "\": \"" << EscapeString(val.value()) << "\"";
+        else
+            oss << "  \"" << key << "\": null";
+    };
+    auto write_opt_int = [&](const char* key, const std::optional<int64_t>& val) {
+        if (val.has_value())
+            oss << "  \"" << key << "\": " << val.value();
+        else
+            oss << "  \"" << key << "\": null";
+    };
+    auto write_opt_uint = [&](const char* key, const std::optional<uint64_t>& val) {
+        if (val.has_value())
+            oss << "  \"" << key << "\": " << val.value();
+        else
+            oss << "  \"" << key << "\": null";
+    };
+
+    write_opt_string("path_glob", rule.path_glob);
+    oss << ",\n";
+    write_opt_string("name_regex", rule.name_regex);
+    oss << ",\n";
+
+    // file_types array
+    oss << "  \"file_types\": ";
+    if (rule.file_types.has_value() && !rule.file_types->empty()) {
+        oss << "[";
+        for (size_t i = 0; i < rule.file_types->size(); ++i) {
+            if (i > 0) oss << ", ";
+            oss << "\"" << FileTypeToString((*rule.file_types)[i]) << "\"";
+        }
+        oss << "]";
+    } else {
+        oss << "null";
+    }
+    oss << ",\n";
+
+    write_opt_int("mtime_after", rule.mtime_after);
+    oss << ",\n";
+    write_opt_int("mtime_before", rule.mtime_before);
+    oss << ",\n";
+    write_opt_uint("min_size", rule.min_size);
+    oss << ",\n";
+    write_opt_uint("max_size", rule.max_size);
+    oss << ",\n";
+    write_opt_string("owner", rule.owner);
+    oss << ",\n";
+    write_opt_string("group", rule.group);
+    oss << "\n";
+    oss << "}";
+    return oss.str();
+}
+
+inline FilterRule FilterRuleFromJson(const std::string& json) {
+    FilterRule rule;
+
+    auto op_str = ExtractStringValue(json, "op");
+    if (op_str.has_value() && op_str.value() == "exclude")
+        rule.op = FilterOp::kExclude;
+    else
+        rule.op = FilterOp::kInclude;
+
+    auto desc = ExtractStringValue(json, "description");
+    rule.description = desc.value_or("");
+
+    // Parse path_glob
+    auto path_glob = ExtractStringValue(json, "path_glob");
+    if (path_glob.has_value() && path_glob.value() != "null" && !path_glob.value().empty())
+        rule.path_glob = path_glob.value();
+
+    // Parse name_regex
+    auto name_regex = ExtractStringValue(json, "name_regex");
+    if (name_regex.has_value() && name_regex.value() != "null" && !name_regex.value().empty())
+        rule.name_regex = name_regex.value();
+
+    // Parse file_types array
+    auto types_arr = ExtractStringArray(json, "file_types");
+    if (!types_arr.empty()) {
+        std::vector<FileType> types;
+        for (const auto& s : types_arr) {
+            types.push_back(StringToFileType(s));
+        }
+        rule.file_types = types;
+    }
+
+    // Parse numbers — check for "null" before trying stoll
+    auto check_null_int = [](const std::string& json_str, const std::string& key) -> std::optional<int64_t> {
+        // Quick null check before parsing
+        std::string nk = "\"" + key + "\": null";
+        if (json_str.find(nk) != std::string::npos) return std::nullopt;
+        nk = "\"" + key + "\":null";
+        if (json_str.find(nk) != std::string::npos) return std::nullopt;
+        return ExtractIntValue(json_str, key);
+    };
+    auto check_null_uint = [](const std::string& json_str, const std::string& key) -> std::optional<uint64_t> {
+        std::string nk = "\"" + key + "\": null";
+        if (json_str.find(nk) != std::string::npos) return std::nullopt;
+        nk = "\"" + key + "\":null";
+        if (json_str.find(nk) != std::string::npos) return std::nullopt;
+        return ExtractUintValue(json_str, key);
+    };
+
+    rule.mtime_after  = check_null_int(json, "mtime_after");
+    rule.mtime_before = check_null_int(json, "mtime_before");
+    rule.min_size     = check_null_uint(json, "min_size");
+    rule.max_size     = check_null_uint(json, "max_size");
+
+    auto owner = ExtractStringValue(json, "owner");
+    if (owner.has_value() && owner.value() != "null" && !owner.value().empty())
+        rule.owner = owner.value();
+
+    auto group = ExtractStringValue(json, "group");
+    if (group.has_value() && group.value() != "null" && !group.value().empty())
+        rule.group = group.value();
+
+    return rule;
+}
+
 } // namespace json
 } // namespace backup

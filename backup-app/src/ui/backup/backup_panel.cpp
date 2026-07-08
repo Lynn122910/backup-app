@@ -1,4 +1,5 @@
 #include "ui/backup/backup_panel.h"
+#include "ui/backup/filter_dialog.h"
 #include "core/config_manager.h"
 #include "common/file_utils.h"
 #include "common/logger.h"
@@ -70,6 +71,12 @@ void BackupPanel::SetupUI() {
     name_edit_ = new QLineEdit();
     name_edit_->setPlaceholderText(tr("Optional: enter a name for this backup"));
     form->addRow(tr("Name:"), name_edit_);
+
+    // Filter rules button
+    filter_btn_ = new QPushButton(tr("Filter Rules..."));
+    filter_btn_->setToolTip(tr("No filter rules (all files included)"));
+    form->addRow(tr("Filter:"), filter_btn_);
+    connect(filter_btn_, &QPushButton::clicked, this, &BackupPanel::OnEditFilters);
 
     main_layout->addWidget(config_group);
 
@@ -164,6 +171,22 @@ void BackupPanel::OnBrowseDestination() {
     if (!dir.isEmpty()) {
         dest_edit_->setText(dir);
         backup::ConfigManager::Instance().SetLastDestDir(dir.toStdString());
+    }
+}
+
+void BackupPanel::OnEditFilters() {
+    FilterDialog dlg(current_filters_, this);
+    if (dlg.exec() == QDialog::Accepted) {
+        current_filters_ = dlg.GetRules();
+        int n = static_cast<int>(current_filters_.size());
+        if (n > 0) {
+            filter_btn_->setToolTip(
+                tr("%1 filter rule(s) active").arg(n));
+            filter_btn_->setText(tr("Filter Rules... (%1)").arg(n));
+        } else {
+            filter_btn_->setToolTip(tr("No filter rules (all files included)"));
+            filter_btn_->setText(tr("Filter Rules..."));
+        }
     }
 }
 
@@ -316,6 +339,7 @@ void BackupPanel::SetUIMode(bool running) {
     name_edit_->setEnabled(!running);
     source_browse_->setEnabled(!running);
     dest_browse_->setEnabled(!running);
+    filter_btn_->setEnabled(!running);
     start_btn_->setEnabled(!running);
     cancel_btn_->setEnabled(running);
 }
@@ -326,5 +350,6 @@ backup::BackupOptions BackupPanel::GatherOptions() const {
     opts.dest_path   = dest_edit_->text().toStdString();
     opts.backup_name = name_edit_->text().toStdString();
     opts.type        = backup::BackupType::kFull;
+    opts.filters     = current_filters_;
     return opts;
 }

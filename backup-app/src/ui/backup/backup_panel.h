@@ -36,6 +36,7 @@ signals:
 private slots:
     void OnBrowseSource();
     void OnBrowseDestination();
+    void OnEditFilters();
     void OnStartBackup();
     void OnCancelBackup();
     void OnProgressUpdated(const backup::BackupProgress& progress);
@@ -53,6 +54,7 @@ private:
     QLineEdit*    name_edit_      = nullptr;
     QPushButton*  source_browse_  = nullptr;
     QPushButton*  dest_browse_    = nullptr;
+    QPushButton*  filter_btn_     = nullptr;
     QPushButton*  start_btn_      = nullptr;
     QPushButton*  cancel_btn_     = nullptr;
     QProgressBar* progress_bar_   = nullptr;
@@ -64,4 +66,7 @@ private:
     QThread*      worker_thread_  = nullptr;
     backup::BackupEngine* engine_ = nullptr;
     bool          running_        = false;
+
+    // Filter rules
+    std::vector<backup::FilterRule> current_filters_;
 };
